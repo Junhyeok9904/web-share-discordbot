@@ -7,7 +7,7 @@
 - **Node.js 기반**: 가볍고 빠르게 동작하는 Node.js 애플리케이션
 - **단일 실행 파일 빌드 제공**: Node.js 환경이 없어도 실행할 수 있도록 Windows용(`.exe`) 및 Mac용 바이너리 빌드 제공
 - **원클릭 실행**: `start.bat` (Windows) 및 `start.command` (Mac) 스크립트를 통한 간편한 실행 지원
-- **환경 변수 설정**: `.env` 파일을 통한 디스코드 봇 토큰 및 보안 대상 유저 설정
+- **웹 기반 초기 설정 UI**: 처음 실행 시 자동으로 웹 브라우저가 열려 디스코드 토큰 및 설정을 간편하게 완료 가능
 - **강력한 보안 로직**: TDD 기반으로 검증된 XSS 및 악성 스킴(`javascript:`, `vbscript:` 등) 필터링 및 방어 기능
 
 ## 사전 요구 사항 (Prerequisites)
@@ -28,12 +28,7 @@
    npm install
    ```
 
-3. 프로젝트 루트에 `.env` 파일을 생성하고 아래와 같이 설정합니다.
-   ```env
-   DISCORD_BOT_TOKEN=your_bot_token_here
-   TARGET_USER_ID=your_discord_user_id_here
-   TARGET_CHANNEL_ID=your_discord_channel_id_here
-   ```
+3. **자동 초기 설정**: 별도의 `.env` 파일을 만들 필요 없이 바로 실행합니다. 처음 실행 시 브라우저가 자동으로 열리며, 안내에 따라 설정을 완료하면 됩니다.
 
 ## 사용법 (Usage)
 
@@ -41,6 +36,8 @@
 
 - **Windows**: `start.bat` 파일을 더블 클릭하여 실행합니다.
 - **Mac**: 터미널에서 `./start.command`를 실행하거나 더블 클릭하여 실행합니다. (실행 권한이 필요한 경우 `chmod +x start.command`를 먼저 실행하세요)
+
+**참고**: 최초 실행 시 웹 브라우저가 열리며 초기 설정(디스코드 토큰 등) 화면이 나타납니다. 설정을 저장하면 자동으로 봇이 실행됩니다.
 
 ### 방법 2: 바이너리(실행 파일) 직접 실행
 
