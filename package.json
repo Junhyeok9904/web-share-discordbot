@@ -1,7 +1,7 @@
 {
   "name": "web-discord-copy",
-  "version": "1.4.0",
-  "description": "",
+  "version": "1.5.0",
+  "description": "Discord Link Opener with Automated CI/CD and Lifecycle Management",
   "main": "index.js",
   "bin": "index.js",
   "scripts": {

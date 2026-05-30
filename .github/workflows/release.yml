@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: node22-win-x64
+            out_name: DiscordLinkOpener-Windows.exe
+          - os: macos-latest
+            target: node22-macos-x64
+            out_name: DiscordLinkOpener-Mac-x64
+          - os: macos-latest
+            target: node22-macos-arm64
+            out_name: DiscordLinkOpener-Mac-Arm64
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js 22
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm install
+      
+    - name: Bundle with NCC
+      run: npx @vercel/ncc build index.js -o dist
+      
+    - name: Build binary with PKG
+      run: npx @yao-pkg/pkg dist/index.js --targets ${{ matrix.target }} --output bin/${{ matrix.out_name }} --no-bytecode --public
+      
+    - name: Generate SHA-256 checksum
+      shell: bash
+      run: |
+        cd bin
+        sha256sum ${{ matrix.out_name }} > ${{ matrix.out_name }}.sha256
+        
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.out_name }}
+        path: bin/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+        
+    - name: Prepare Release Assets
+      run: |
+        mkdir release_assets
+        find artifacts -type f -exec cp {} release_assets/ \;
+        ls -R release_assets
+        
+    - name: Create Release
+      uses: ncipollo/release-action@v1
+      with:
+        artifacts: "release_assets/*"
+        token: ${{ secrets.GITHUB_TOKEN }}
+        draft: false
+        prerelease: false
+        generateReleaseNotes: true

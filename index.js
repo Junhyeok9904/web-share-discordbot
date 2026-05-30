@@ -7,40 +7,91 @@ if (fs.existsSync(envPath)) {
     require('dotenv').config({ path: envPath });
 }
 
-const { Client, GatewayIntentBits, Events, ChannelType } = require('discord.js');
+const { Client, GatewayIntentBits, Events, ChannelType, EmbedBuilder } = require('discord.js');
 const open = require('open');
 const express = require('express');
 const readline = require('readline');
 const { extractValidUrl } = require('./src/utils');
+const { checkForUpdates } = require('./src/updater');
+const { version } = require('./package.json');
+
+// --- I18N ---
+const LANGUAGES = ['ko', 'en'];
+const currentLang = process.env.LANG || 'ko';
+const I18N = {
+    ko: {
+        setupTitle: 'Web-Share 초기 설정',
+        step1: '1단계: 봇 연결',
+        step2: '2단계: 상세 설정',
+        tokenLabel: '디스코드 봇 토큰',
+        clientIdLabel: '봇 클라이언트 ID (선택)',
+        clientIdHint: 'ID를 입력하면 자동으로 초대 링크를 생성해 드립니다.',
+        nextBtn: '연결 및 정보 불러오기',
+        channelLabel: '감시할 타겟 채널',
+        browserLabel: '브라우저 선택',
+        userLabel: '허용된 사용자 (복수 선택)',
+        finishBtn: '설정 저장 및 가동 시작',
+        successTitle: '설정 완료!',
+        successMsg: '봇이 성공적으로 세팅되었습니다.',
+        updateFound: '새로운 업데이트가 있습니다!',
+        updateBtn: '업데이트 확인하러 가기',
+        errorIntent: "디스코드 포털에서 'Message Content Intent'와 'Server Members Intent'를 켜주세요.",
+        errorToken: "토큰이 올바르지 않습니다. 다시 확인해주세요."
+    },
+    en: {
+        setupTitle: 'Web-Share Setup',
+        step1: 'Step 1: Bot Connection',
+        step2: 'Step 2: Detailed Setup',
+        tokenLabel: 'Discord Bot Token',
+        clientIdLabel: 'Bot Client ID (Optional)',
+        clientIdHint: 'Enter ID to auto-generate an invitation link.',
+        nextBtn: 'Connect & Fetch Info',
+        channelLabel: 'Target Channel',
+        browserLabel: 'Select Browser',
+        userLabel: 'Allowed Users (Multi-select)',
+        finishBtn: 'Save & Start Bot',
+        successTitle: 'Setup Complete!',
+        successMsg: 'The bot has been successfully configured.',
+        updateFound: 'New update available!',
+        updateBtn: 'Check Update',
+        errorIntent: "Please enable 'Message Content Intent' and 'Server Members Intent' in the Discord Portal.",
+        errorToken: "Invalid token. Please check again."
+    }
+};
+
+function t(key) {
+    return I18N[currentLang][key] || I18N['en'][key] || key;
+}
+
+function getErrorMessage(err) {
+    if (err.message.includes('intents')) return t('errorIntent');
+    if (err.message.includes('Token')) return t('errorToken');
+    return err.message;
+}
 
 function pauseAndExit(code = 1) {
-    const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout
-    });
-    rl.question('\n종료하려면 아무 키나 누르세요 (Enter)...', () => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question('\nPress Enter to exit...', () => {
         rl.close();
         process.exit(code);
     });
 }
 
 process.on('uncaughtException', (err) => {
-    console.error('\n❌ 예기치 않은 시스템 오류가 발생했습니다:');
-    console.error(err);
+    console.error('\n❌ System Error:', err);
     pauseAndExit(1);
 });
 
-// OS별 브라우저 앱 이름 매핑
 const BROWSER_APPS = {
     'default': null,
     'chrome': process.platform === 'darwin' ? 'google chrome' : 'chrome',
     'firefox': 'firefox',
     'edge': process.platform === 'darwin' ? 'microsoft edge' : 'msedge',
     'brave': process.platform === 'darwin' ? 'brave browser' : 'brave',
-    'safari': 'safari' // macOS 전용
+    'safari': 'safari'
 };
 
-function startBot() {
+async function startBot() {
     const client = new Client({
         intents: [
             GatewayIntentBits.Guilds,
@@ -53,15 +104,32 @@ function startBot() {
     const allowedUsers = (process.env.ALLOWED_USER_IDS || '').split(',').filter(id => id.trim() !== '');
     const selectedBrowserKey = process.env.SELECTED_BROWSER || 'default';
 
-    client.once(Events.ClientReady, c => {
-        console.log(`\n✅ 디스코드 봇 로그인 완료: ${c.user.tag}`);
-        console.log(`📡 감시 채널: ${process.env.TARGET_CHANNEL_ID || '모든 채널'}`);
-        console.log(`🌐 실행 브라우저: ${selectedBrowserKey}`);
-        if (allowedUsers.length > 0) {
-            console.log(`🔒 허용 사용자: ${allowedUsers.length}명`);
+    client.once(Events.ClientReady, async c => {
+        console.log(`\n✅ Login Success: ${c.user.tag} (v${version})`);
+        console.log(`📡 Watching: ${process.env.TARGET_CHANNEL_ID || 'All Channels'}`);
+        
+        // --- Update Check ---
+        const updateInfo = await checkForUpdates(envPath);
+        if (updateInfo && updateInfo.hasUpdate) {
+            console.log(`\n📢 [UPDATE] New version v${updateInfo.latestVersion} is available!`);
+            console.log(`🔗 ${updateInfo.url}`);
+            
+            // Discord channel notification
+            if (process.env.TARGET_CHANNEL_ID) {
+                try {
+                    const channel = await client.channels.fetch(process.env.TARGET_CHANNEL_ID);
+                    if (channel) {
+                        const embed = new EmbedBuilder()
+                            .setColor(0x0099FF)
+                            .setTitle('🚀 New Update Available!')
+                            .setDescription(`A new version **v${updateInfo.latestVersion}** has been released.\n[View on GitHub](${updateInfo.url})`)
+                            .setTimestamp();
+                        await channel.send({ embeds: [embed] });
+                    }
+                } catch (e) {}
+            }
         }
         console.log(`---------------------------------------------------`);
-        console.log(`가동 중...`);
     });
 
     client.on(Events.MessageCreate, async message => {
@@ -71,7 +139,7 @@ function startBot() {
 
         const targetUrl = extractValidUrl(message.content);
         if (targetUrl) {
-            console.log(`\n🔗 링크 감지 (${message.author.tag}): ${targetUrl}`);
+            console.log(`\n🔗 Link Detected (${message.author.tag}): ${targetUrl}`);
             try {
                 const browserApp = BROWSER_APPS[selectedBrowserKey];
                 if (browserApp) {
@@ -79,11 +147,10 @@ function startBot() {
                 } else {
                     await open(targetUrl);
                 }
-                console.log(`✅ ${selectedBrowserKey} 브라우저 실행 성공`);
+                console.log(`✅ Success (${selectedBrowserKey})`);
                 await message.react('✅');
             } catch (error) {
-                console.error(`❌ ${selectedBrowserKey} 브라우저 실행 실패:`, error.message);
-                console.log('기본 브라우저로 재시도합니다...');
+                console.error(`❌ Fail:`, error.message);
                 try {
                     await open(targetUrl);
                     await message.react('✅');
@@ -95,7 +162,7 @@ function startBot() {
     });
 
     client.login(process.env.DISCORD_TOKEN).catch(err => {
-        console.error("\n❌ 로그인 실패:", err.message);
+        console.error("\n❌ Login Failed:", getErrorMessage(err));
         pauseAndExit(1);
     });
 }
@@ -109,16 +176,24 @@ function startSetupUI() {
     app.get('/', (req, res) => {
         res.send(renderLayout(`
             <div class="text-center mb-6">
-                <h1 class="text-2xl font-extrabold text-indigo-600 italic uppercase tracking-tighter">Web-Share Setup</h1>
-                <p class="text-gray-500 text-sm mt-1">1단계: 디스코드 봇 연결</p>
+                <h1 class="text-2xl font-extrabold text-indigo-600 italic uppercase">${t('step1')}</h1>
+                <div class="flex justify-center space-x-2 mt-2">
+                    <span class="px-2 py-0.5 bg-indigo-100 text-indigo-600 text-[10px] font-bold rounded">KOREAN</span>
+                    <span class="px-2 py-0.5 bg-gray-100 text-gray-400 text-[10px] font-bold rounded">ENGLISH</span>
+                </div>
             </div>
             <form action="/step2" method="POST" class="space-y-5">
                 <div class="space-y-1">
-                    <label class="block text-sm font-bold text-gray-700 ml-1">봇 토큰 (Bot Token)</label>
+                    <label class="block text-sm font-bold text-gray-700 ml-1">${t('tokenLabel')}</label>
                     <input type="password" name="token" required placeholder="MTE..." class="w-full px-4 py-3 border-2 border-gray-100 rounded-2xl focus:border-indigo-500 outline-none transition-all">
                 </div>
+                <div class="space-y-1">
+                    <label class="block text-sm font-bold text-gray-700 ml-1">${t('clientIdLabel')}</label>
+                    <input type="text" name="clientId" placeholder="1510..." class="w-full px-4 py-3 border-2 border-gray-100 rounded-2xl focus:border-indigo-500 outline-none transition-all text-sm">
+                    <p class="text-[10px] text-gray-400 mt-1 ml-1">${t('clientIdHint')}</p>
+                </div>
                 <button type="submit" class="w-full py-4 px-4 rounded-2xl text-white bg-indigo-600 hover:bg-indigo-700 font-bold shadow-xl shadow-indigo-100 transition-all active:scale-95">
-                    연결 및 서버 정보 불러오기
+                    ${t('nextBtn')}
                 </button>
             </form>
         `));
@@ -126,6 +201,7 @@ function startSetupUI() {
 
     app.post('/step2', async (req, res) => {
         const token = req.body.token.trim();
+        const clientId = req.body.clientId?.trim();
         const tempClient = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 
         try {
@@ -174,30 +250,44 @@ function startSetupUI() {
                 `;
             });
 
+            // 초대 링크 생성
+            let inviteLink = '';
+            if (clientId) {
+                inviteLink = `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=3072&scope=bot`;
+            }
+
             tempClient.destroy();
 
             res.send(renderLayout(`
-                <div class="text-center mb-8">
-                    <h1 class="text-2xl font-extrabold text-indigo-600 italic uppercase tracking-tighter text-shadow">Final Step</h1>
-                    <p class="text-gray-500 text-sm mt-1 font-medium">상세 설정을 완료해 주세요.</p>
+                <div class="text-center mb-6">
+                    <h1 class="text-2xl font-extrabold text-indigo-600 italic uppercase">${t('step2')}</h1>
                 </div>
+
+                ${inviteLink ? `
+                <div class="mb-6 p-4 bg-amber-50 rounded-2xl border-2 border-dashed border-amber-200">
+                    <p class="text-xs font-bold text-amber-700 mb-2 underline italic">BOT INVITATION REQUIRED</p>
+                    <a href="${inviteLink}" target="_blank" class="text-xs text-indigo-600 font-medium break-all hover:underline">${inviteLink}</a>
+                    <p class="text-[10px] text-amber-600 mt-2">※ 먼저 위 링크를 통해 봇을 서버에 초대해야 채널 목록이 정상적으로 작동합니다.</p>
+                </div>
+                ` : ''}
+
                 <form action="/finish" method="POST" class="space-y-6">
                     <input type="hidden" name="token" value="${token}">
                     
                     <div class="grid grid-cols-2 gap-4">
                         <div class="space-y-2">
-                            <label class="block text-xs font-black text-gray-400 uppercase tracking-widest ml-1">타겟 채널</label>
+                            <label class="block text-xs font-black text-gray-400 uppercase tracking-widest ml-1">${t('channelLabel')}</label>
                             <select name="channelId" class="w-full px-4 py-3 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:border-indigo-500 outline-none transition-all text-sm font-bold">
                                 ${channelOptions}
                             </select>
                         </div>
                         <div class="space-y-2">
-                            <label class="block text-xs font-black text-gray-400 uppercase tracking-widest ml-1">브라우저 선택</label>
+                            <label class="block text-xs font-black text-gray-400 uppercase tracking-widest ml-1">${t('browserLabel')}</label>
                             <select name="browser" class="w-full px-4 py-3 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:border-indigo-500 outline-none transition-all text-sm font-bold">
-                                <option value="default">시스템 기본</option>
-                                <option value="chrome">Google Chrome</option>
+                                <option value="default">System Default</option>
+                                <option value="chrome">Chrome</option>
                                 <option value="firefox">Firefox</option>
-                                <option value="edge">MS Edge</option>
+                                <option value="edge">Edge</option>
                                 <option value="brave">Brave</option>
                                 ${process.platform === 'darwin' ? '<option value="safari">Safari</option>' : ''}
                             </select>
@@ -205,14 +295,14 @@ function startSetupUI() {
                     </div>
 
                     <div class="space-y-3">
-                        <label class="block text-xs font-black text-gray-400 uppercase tracking-widest ml-1 text-indigo-500">허용된 사용자 (나를 포함해 체크)</label>
-                        <div class="grid grid-cols-1 gap-2 max-h-[260px] overflow-y-auto pr-1 custom-scrollbar">
-                            ${memberCheckboxes || '<p class="text-gray-400 text-sm italic p-4 text-center">멤버 정보 없음</p>'}
+                        <label class="block text-xs font-black text-gray-400 uppercase tracking-widest ml-1 text-indigo-500">${t('userLabel')}</label>
+                        <div class="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto pr-1 custom-scrollbar">
+                            ${memberCheckboxes || '<p class="text-gray-400 text-sm italic p-4 text-center">No Members Found</p>'}
                         </div>
                     </div>
 
                     <button type="submit" class="w-full py-4 px-4 rounded-2xl text-white bg-green-600 hover:bg-green-700 font-black shadow-xl shadow-green-100 transition-all active:scale-95">
-                        모든 설정 저장 및 가동 시작
+                        ${t('finishBtn')}
                     </button>
                 </form>
             `, 'max-w-xl'));
@@ -220,10 +310,10 @@ function startSetupUI() {
             if (tempClient) tempClient.destroy();
             res.send(renderLayout(`
                 <div class="text-center py-8">
-                    <div class="text-red-500 text-7xl mb-4 font-black">ERROR</div>
-                    <h2 class="text-xl font-bold text-gray-800 mb-2">로그인 실패</h2>
-                    <p class="text-gray-500 text-sm mb-8 px-4">${err.message}</p>
-                    <a href="/" class="px-10 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-all shadow-lg">다시 토큰 입력하기</a>
+                    <div class="text-red-500 text-7xl mb-4 font-black text-shadow">ERROR</div>
+                    <h2 class="text-xl font-bold text-gray-800 mb-2">FAIL</h2>
+                    <p class="text-gray-500 text-sm mb-8 px-4">${getErrorMessage(err)}</p>
+                    <a href="/" class="px-10 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-all">RETRY</a>
                 </div>
             `));
         }
@@ -245,39 +335,38 @@ function startSetupUI() {
         res.send(renderLayout(`
             <div class="text-center py-12">
                 <div class="w-24 h-24 bg-green-50 text-green-500 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 animate-pulse">✓</div>
-                <h1 class="text-4xl font-black text-gray-800 mb-3 tracking-tighter">MISSION COMPLETE</h1>
-                <p class="text-gray-400 font-medium mb-10">봇이 성공적으로 세팅되었습니다.<br>지금부터 링크가 감지되면 자동으로 브라우저가 열립니다.</p>
-                <div class="text-[10px] text-gray-300 font-mono tracking-widest animate-bounce uppercase">Closing in 3 seconds...</div>
+                <h1 class="text-4xl font-black text-gray-800 mb-3 tracking-tighter uppercase">${t('successTitle')}</h1>
+                <p class="text-gray-400 font-medium mb-10">${t('successMsg')}</p>
+                <div class="text-[10px] text-gray-300 font-mono tracking-widest animate-bounce uppercase">Closing...</div>
                 <script>setTimeout(() => { window.close(); }, 3000);</script>
             </div>
         `));
 
         server.close(() => {
-            console.log('\n✨ [CONFIG SUCCESS] 설정 저장 완료.');
-            console.log('🚀 시스템 가동을 시작합니다!');
+            console.log('\n✨ [SETUP OK]');
             startBot();
         });
     });
 
     function renderLayout(content, maxWidth = 'max-w-md') {
         return `<!DOCTYPE html>
-        <html lang="ko">
+        <html lang="${currentLang}">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>WEB-SHARE SETUP</title>
+            <title>Web-Share Setup</title>
             <script src="https://cdn.tailwindcss.com"></script>
-            <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&display=swap" rel="stylesheet">
+            <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700;800&display=swap" rel="stylesheet">
             <style>
                 body { font-family: 'Space Grotesk', 'Pretendard', sans-serif; letter-spacing: -0.02em; }
                 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
                 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
                 .custom-scrollbar::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 20px; }
-                .text-shadow { text-shadow: 0 10px 20px rgba(79, 70, 229, 0.2); }
+                .text-shadow { text-shadow: 0 10px 30px rgba(239, 68, 68, 0.4); }
             </style>
         </head>
-        <body class="bg-[#F1F5F9] flex items-center justify-center min-h-screen p-4 leading-tight">
-            <div class="bg-white p-10 rounded-[40px] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.1)] border border-white/50 w-full ${maxWidth} transition-all">
+        <body class="bg-[#F8FAFC] flex items-center justify-center min-h-screen p-4 leading-tight">
+            <div class="bg-white p-10 rounded-[48px] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.08)] border border-white/50 w-full ${maxWidth} transition-all">
                 ${content}
             </div>
         </body>
@@ -285,7 +374,7 @@ function startSetupUI() {
     }
 
     const server = app.listen(port, async () => {
-        console.log(`\n🚀 웹 설정 화면 준비 완료: http://localhost:${port}`);
+        console.log(`\n🚀 Setup UI Ready: http://localhost:${port}`);
         await open(`http://localhost:${port}`);
     });
 }
