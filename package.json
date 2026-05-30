@@ -1,0 +1,23 @@
+{
+  "name": "web-discord-copy",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "bin": "index.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "discord.js": "^14.26.4",
+    "dotenv": "^17.4.2",
+    "open": "^8.4.2",
+    "pkg": "^5.8.1"
+  },
+  "devDependencies": {
+    "jest": "^30.4.2"
+  }
+}
