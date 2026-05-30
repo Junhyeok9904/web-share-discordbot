@@ -30,49 +30,66 @@ process.on('uncaughtException', (err) => {
     pauseAndExit(1);
 });
 
+// OS별 브라우저 앱 이름 매핑
+const BROWSER_APPS = {
+    'default': null,
+    'chrome': process.platform === 'darwin' ? 'google chrome' : 'chrome',
+    'firefox': 'firefox',
+    'edge': process.platform === 'darwin' ? 'microsoft edge' : 'msedge',
+    'brave': process.platform === 'darwin' ? 'brave browser' : 'brave',
+    'safari': 'safari' // macOS 전용
+};
+
 function startBot() {
     const client = new Client({
         intents: [
             GatewayIntentBits.Guilds,
             GatewayIntentBits.GuildMessages,
             GatewayIntentBits.MessageContent,
-            GatewayIntentBits.GuildMembers // 멤버 목록 확인을 위해 필요
+            GatewayIntentBits.GuildMembers
         ]
     });
 
     const allowedUsers = (process.env.ALLOWED_USER_IDS || '').split(',').filter(id => id.trim() !== '');
+    const selectedBrowserKey = process.env.SELECTED_BROWSER || 'default';
 
     client.once(Events.ClientReady, c => {
         console.log(`\n✅ 디스코드 봇 로그인 완료: ${c.user.tag}`);
-        console.log(`📡 감시 중인 채널 ID: ${process.env.TARGET_CHANNEL_ID || '모든 채널'}`);
+        console.log(`📡 감시 채널: ${process.env.TARGET_CHANNEL_ID || '모든 채널'}`);
+        console.log(`🌐 실행 브라우저: ${selectedBrowserKey}`);
         if (allowedUsers.length > 0) {
-            console.log(`🔒 허용된 사용자 수: ${allowedUsers.length}명`);
-        } else {
-            console.log(`⚠️ 보안 알림: 허용된 사용자가 설정되지 않았습니다. 누구나 링크를 열 수 있습니다.`);
+            console.log(`🔒 허용 사용자: ${allowedUsers.length}명`);
         }
         console.log(`---------------------------------------------------`);
-        console.log(`링크 감지 가동 중...`);
+        console.log(`가동 중...`);
     });
 
     client.on(Events.MessageCreate, async message => {
         if (message.author.bot) return;
         if (process.env.TARGET_CHANNEL_ID && message.channelId !== process.env.TARGET_CHANNEL_ID) return;
-        
-        // 복수 유저 아이디 체크
-        if (allowedUsers.length > 0 && !allowedUsers.includes(message.author.id)) {
-            return;
-        }
+        if (allowedUsers.length > 0 && !allowedUsers.includes(message.author.id)) return;
 
         const targetUrl = extractValidUrl(message.content);
         if (targetUrl) {
             console.log(`\n🔗 링크 감지 (${message.author.tag}): ${targetUrl}`);
             try {
-                await open(targetUrl);
-                console.log(`✅ 브라우저 실행 성공`);
+                const browserApp = BROWSER_APPS[selectedBrowserKey];
+                if (browserApp) {
+                    await open(targetUrl, { app: { name: browserApp } });
+                } else {
+                    await open(targetUrl);
+                }
+                console.log(`✅ ${selectedBrowserKey} 브라우저 실행 성공`);
                 await message.react('✅');
             } catch (error) {
-                console.error('❌ 브라우저 실행 실패:', error);
-                await message.react('❌');
+                console.error(`❌ ${selectedBrowserKey} 브라우저 실행 실패:`, error.message);
+                console.log('기본 브라우저로 재시도합니다...');
+                try {
+                    await open(targetUrl);
+                    await message.react('✅');
+                } catch (e) {
+                    await message.react('❌');
+                }
             }
         }
     });
@@ -92,17 +109,16 @@ function startSetupUI() {
     app.get('/', (req, res) => {
         res.send(renderLayout(`
             <div class="text-center mb-6">
-                <h1 class="text-2xl font-extrabold text-indigo-600 italic">WEB-SHARE SETUP</h1>
-                <p class="text-gray-500 text-sm mt-2">1단계: 봇 토큰 입력</p>
+                <h1 class="text-2xl font-extrabold text-indigo-600 italic uppercase tracking-tighter">Web-Share Setup</h1>
+                <p class="text-gray-500 text-sm mt-1">1단계: 디스코드 봇 연결</p>
             </div>
             <form action="/step2" method="POST" class="space-y-5">
-                <div>
-                    <label class="block text-sm font-semibold text-gray-700 mb-1">디스코드 봇 토큰</label>
-                    <input type="password" name="token" required placeholder="MTE..." class="w-full px-4 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all">
-                    <p class="text-[11px] text-gray-400 mt-2 italic">※ 권한 설정에서 'Message Content'와 'Server Members' 인텐트가 켜져 있어야 합니다.</p>
+                <div class="space-y-1">
+                    <label class="block text-sm font-bold text-gray-700 ml-1">봇 토큰 (Bot Token)</label>
+                    <input type="password" name="token" required placeholder="MTE..." class="w-full px-4 py-3 border-2 border-gray-100 rounded-2xl focus:border-indigo-500 outline-none transition-all">
                 </div>
-                <button type="submit" class="w-full py-3 px-4 rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 font-bold shadow-lg shadow-indigo-200 transition-all active:scale-[0.98]">
-                    서버 및 멤버 목록 불러오기
+                <button type="submit" class="w-full py-4 px-4 rounded-2xl text-white bg-indigo-600 hover:bg-indigo-700 font-bold shadow-xl shadow-indigo-100 transition-all active:scale-95">
+                    연결 및 서버 정보 불러오기
                 </button>
             </form>
         `));
@@ -110,24 +126,17 @@ function startSetupUI() {
 
     app.post('/step2', async (req, res) => {
         const token = req.body.token.trim();
-        const tempClient = new Client({ 
-            intents: [
-                GatewayIntentBits.Guilds, 
-                GatewayIntentBits.GuildMembers
-            ] 
-        });
+        const tempClient = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 
         try {
             await tempClient.login(token);
             const guilds = await tempClient.guilds.fetch();
             
             let channelOptions = '<option value="">모든 채널 (전체 허용)</option>';
-            let memberMap = new Map(); // 중복 제거를 위한 Map
+            let memberMap = new Map();
 
             for (const [id, guild] of guilds) {
                 const fullGuild = await guild.fetch();
-                
-                // 채널 정보 수집
                 const channels = await fullGuild.channels.fetch();
                 const textChannels = channels.filter(c => c.type === ChannelType.GuildText);
                 channelOptions += `<optgroup label="${fullGuild.name}">`;
@@ -136,9 +145,8 @@ function startSetupUI() {
                 });
                 channelOptions += `</optgroup>`;
 
-                // 멤버 정보 수집 (최대 1000명까지만 안전하게 로드)
                 try {
-                    const members = await fullGuild.members.fetch({ limit: 1000 });
+                    const members = await fullGuild.members.fetch({ limit: 100 });
                     members.forEach(m => {
                         if (!m.user.bot) {
                             memberMap.set(m.id, {
@@ -148,22 +156,18 @@ function startSetupUI() {
                             });
                         }
                     });
-                } catch (e) {
-                    console.error(`${fullGuild.name} 멤버 로드 실패:`, e.message);
-                }
+                } catch (e) {}
             }
 
-            // 멤버 목록을 이름순으로 정렬
             const sortedMembers = Array.from(memberMap.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name));
-
             let memberCheckboxes = '';
             sortedMembers.forEach(([id, info]) => {
                 memberCheckboxes += `
-                    <label class="flex items-center p-3 border border-gray-100 rounded-xl hover:bg-indigo-50 cursor-pointer transition-colors group">
-                        <input type="checkbox" name="userIds" value="${id}" class="w-5 h-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
-                        <img src="${info.avatar}" class="w-7 h-7 rounded-full ml-3 border border-gray-200">
+                    <label class="flex items-center p-3 border border-gray-50 rounded-xl hover:bg-indigo-50 cursor-pointer transition-all group">
+                        <input type="checkbox" name="userIds" value="${id}" class="w-5 h-5 text-indigo-600 border-gray-200 rounded-lg">
+                        <img src="${info.avatar}" class="w-8 h-8 rounded-full ml-3 ring-2 ring-white">
                         <div class="ml-3">
-                            <div class="text-sm font-bold text-gray-800 group-hover:text-indigo-700">${info.name}</div>
+                            <div class="text-sm font-bold text-gray-800">${info.name}</div>
                             <div class="text-[10px] text-gray-400 font-mono">${info.tag}</div>
                         </div>
                     </label>
@@ -173,78 +177,84 @@ function startSetupUI() {
             tempClient.destroy();
 
             res.send(renderLayout(`
-                <div class="text-center mb-6">
-                    <h1 class="text-2xl font-extrabold text-indigo-600 italic">STEP 2: 상세 설정</h1>
-                    <p class="text-gray-500 text-sm mt-1 font-medium">감시할 채널과 이용 가능한 사용자를 선택하세요.</p>
+                <div class="text-center mb-8">
+                    <h1 class="text-2xl font-extrabold text-indigo-600 italic uppercase tracking-tighter text-shadow">Final Step</h1>
+                    <p class="text-gray-500 text-sm mt-1 font-medium">상세 설정을 완료해 주세요.</p>
                 </div>
                 <form action="/finish" method="POST" class="space-y-6">
                     <input type="hidden" name="token" value="${token}">
                     
-                    <div class="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100">
-                        <label class="block text-xs font-bold text-indigo-400 uppercase tracking-wider mb-2 ml-1">감시할 타겟 채널</label>
-                        <select name="channelId" class="w-full px-4 py-3 border border-indigo-200 rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                            ${channelOptions}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 ml-1">링크 실행을 허용할 사용자 (복수 선택)</label>
-                        <div class="grid grid-cols-1 gap-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                            ${memberCheckboxes || '<p class="text-gray-400 text-sm italic p-4 text-center">불러온 멤버가 없습니다.</p>'}
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="space-y-2">
+                            <label class="block text-xs font-black text-gray-400 uppercase tracking-widest ml-1">타겟 채널</label>
+                            <select name="channelId" class="w-full px-4 py-3 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:border-indigo-500 outline-none transition-all text-sm font-bold">
+                                ${channelOptions}
+                            </select>
+                        </div>
+                        <div class="space-y-2">
+                            <label class="block text-xs font-black text-gray-400 uppercase tracking-widest ml-1">브라우저 선택</label>
+                            <select name="browser" class="w-full px-4 py-3 bg-gray-50 border-2 border-transparent rounded-2xl focus:bg-white focus:border-indigo-500 outline-none transition-all text-sm font-bold">
+                                <option value="default">시스템 기본</option>
+                                <option value="chrome">Google Chrome</option>
+                                <option value="firefox">Firefox</option>
+                                <option value="edge">MS Edge</option>
+                                <option value="brave">Brave</option>
+                                ${process.platform === 'darwin' ? '<option value="safari">Safari</option>' : ''}
+                            </select>
                         </div>
                     </div>
 
-                    <button type="submit" class="w-full py-4 px-4 rounded-xl text-white bg-green-600 hover:bg-green-700 font-bold shadow-lg shadow-green-200 transition-all active:scale-[0.98]">
-                        설정 저장 및 서비스 시작
+                    <div class="space-y-3">
+                        <label class="block text-xs font-black text-gray-400 uppercase tracking-widest ml-1 text-indigo-500">허용된 사용자 (나를 포함해 체크)</label>
+                        <div class="grid grid-cols-1 gap-2 max-h-[260px] overflow-y-auto pr-1 custom-scrollbar">
+                            ${memberCheckboxes || '<p class="text-gray-400 text-sm italic p-4 text-center">멤버 정보 없음</p>'}
+                        </div>
+                    </div>
+
+                    <button type="submit" class="w-full py-4 px-4 rounded-2xl text-white bg-green-600 hover:bg-green-700 font-black shadow-xl shadow-green-100 transition-all active:scale-95">
+                        모든 설정 저장 및 가동 시작
                     </button>
                 </form>
-                <style>
-                    .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-                    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
-                    .custom-scrollbar::-webkit-scrollbar-thumb { background: #ddd; border-radius: 10px; }
-                    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #ccc; }
-                </style>
-            `, 'max-w-lg'));
+            `, 'max-w-xl'));
         } catch (err) {
             if (tempClient) tempClient.destroy();
             res.send(renderLayout(`
-                <div class="text-center py-4">
-                    <div class="text-red-500 text-6xl mb-6 font-bold">!</div>
-                    <h2 class="text-xl font-bold text-gray-800 mb-2">로그인에 실패했습니다</h2>
-                    <p class="text-gray-500 text-sm mb-8 leading-relaxed">${err.message}<br><span class="text-xs text-red-400 font-bold italic">※ Server Members Intent가 켜져 있는지 확인하세요.</span></p>
-                    <a href="/" class="px-8 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-all">돌아가기</a>
+                <div class="text-center py-8">
+                    <div class="text-red-500 text-7xl mb-4 font-black">ERROR</div>
+                    <h2 class="text-xl font-bold text-gray-800 mb-2">로그인 실패</h2>
+                    <p class="text-gray-500 text-sm mb-8 px-4">${err.message}</p>
+                    <a href="/" class="px-10 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-all shadow-lg">다시 토큰 입력하기</a>
                 </div>
             `));
         }
     });
 
     app.post('/finish', (req, res) => {
-        let { token, userIds, channelId } = req.body;
-        
-        // userIds가 단일 선택일 경우 문자열, 복수일 경우 배열로 옵니다.
+        let { token, userIds, channelId, browser } = req.body;
         if (typeof userIds === 'string') userIds = [userIds];
         const allowedIdsStr = (userIds || []).join(',');
 
-        const envContent = `DISCORD_TOKEN=${token}\nTARGET_CHANNEL_ID=${channelId}\nALLOWED_USER_IDS=${allowedIdsStr}\n`;
+        const envContent = `DISCORD_TOKEN=${token}\nTARGET_CHANNEL_ID=${channelId}\nALLOWED_USER_IDS=${allowedIdsStr}\nSELECTED_BROWSER=${browser}\n`;
         fs.writeFileSync(envPath, envContent, 'utf8');
         
         process.env.DISCORD_TOKEN = token;
         process.env.TARGET_CHANNEL_ID = channelId;
         process.env.ALLOWED_USER_IDS = allowedIdsStr;
+        process.env.SELECTED_BROWSER = browser;
 
         res.send(renderLayout(`
-            <div class="text-center py-10">
-                <div class="inline-flex items-center justify-center w-20 h-20 bg-green-100 text-green-600 rounded-full text-4xl mb-6 animate-bounce">✓</div>
-                <h1 class="text-3xl font-black text-gray-800 mb-3 tracking-tighter">ALL READY!</h1>
-                <p class="text-gray-500 font-medium mb-8">성공적으로 설정되었습니다.<br>이제 브라우저를 닫고 봇을 사용하세요.</p>
-                <div class="text-xs text-gray-300 font-mono italic">3초 후 창이 자동으로 닫힙니다...</div>
+            <div class="text-center py-12">
+                <div class="w-24 h-24 bg-green-50 text-green-500 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 animate-pulse">✓</div>
+                <h1 class="text-4xl font-black text-gray-800 mb-3 tracking-tighter">MISSION COMPLETE</h1>
+                <p class="text-gray-400 font-medium mb-10">봇이 성공적으로 세팅되었습니다.<br>지금부터 링크가 감지되면 자동으로 브라우저가 열립니다.</p>
+                <div class="text-[10px] text-gray-300 font-mono tracking-widest animate-bounce uppercase">Closing in 3 seconds...</div>
                 <script>setTimeout(() => { window.close(); }, 3000);</script>
             </div>
         `));
 
         server.close(() => {
-            console.log('\n✨ [CONFIG SUCCESS] 모든 설정이 완료되었습니다.');
-            console.log('🚀 봇 가동을 시작합니다...');
+            console.log('\n✨ [CONFIG SUCCESS] 설정 저장 완료.');
+            console.log('🚀 시스템 가동을 시작합니다!');
             startBot();
         });
     });
@@ -255,13 +265,19 @@ function startSetupUI() {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Discord Link Opener Setup</title>
+            <title>WEB-SHARE SETUP</title>
             <script src="https://cdn.tailwindcss.com"></script>
-            <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;800&display=swap" rel="stylesheet">
-            <style>body { font-family: 'Pretendard', sans-serif; }</style>
+            <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;500;700&display=swap" rel="stylesheet">
+            <style>
+                body { font-family: 'Space Grotesk', 'Pretendard', sans-serif; letter-spacing: -0.02em; }
+                .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+                .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+                .custom-scrollbar::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 20px; }
+                .text-shadow { text-shadow: 0 10px 20px rgba(79, 70, 229, 0.2); }
+            </style>
         </head>
-        <body class="bg-[#F8FAFC] flex items-center justify-center min-h-screen p-4">
-            <div class="bg-white p-8 rounded-[32px] shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-gray-100 w-full ${maxWidth}">
+        <body class="bg-[#F1F5F9] flex items-center justify-center min-h-screen p-4 leading-tight">
+            <div class="bg-white p-10 rounded-[40px] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.1)] border border-white/50 w-full ${maxWidth} transition-all">
                 ${content}
             </div>
         </body>
@@ -269,7 +285,7 @@ function startSetupUI() {
     }
 
     const server = app.listen(port, async () => {
-        console.log(`\n🚀 웹 설정 화면이 준비되었습니다: http://localhost:${port}`);
+        console.log(`\n🚀 웹 설정 화면 준비 완료: http://localhost:${port}`);
         await open(`http://localhost:${port}`);
     });
 }
