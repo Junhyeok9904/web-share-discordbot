@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Discord Link Opener</title>
+  <style>
+    body {
+      width: 300px;
+      padding: 15px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f6f8fa;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 15px;
+    }
+    .header h1 {
+      font-size: 18px;
+      color: #5865F2; /* Discord Color */
+      margin: 0;
+    }
+    .form-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: bold;
+      color: #4f5660;
+      margin-bottom: 5px;
+    }
+    input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+      font-size: 13px;
+    }
+    .status {
+      margin-top: 15px;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      text-align: center;
+    }
+    .status.active {
+      background-color: #e3f9e5;
+      color: #1a7f37;
+    }
+    .status.stopped {
+      background-color: #ffebe9;
+      color: #cf222e;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 4px;
+      background-color: #5865F2;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:hover {
+      background-color: #4752c4;
+    }
+    button.secondary {
+      background-color: #ebedef;
+      color: #2e3338;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Discord Link Opener</h1>
+  </div>
+
+  <div class="form-group">
+    <label for="token">Bot Token</label>
+    <input type="password" id="token" placeholder="MTE...">
+  </div>
+
+  <div class="form-group">
+    <label for="channelId">Target Channel ID</label>
+    <input type="text" id="channelId" placeholder="1098...">
+  </div>
+
+  <div id="statusMessage" class="status stopped">
+    Service Stopped
+  </div>
+
+  <button id="saveBtn">Save & Start</button>
+  <button id="stopBtn" class="secondary">Stop Service</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>
