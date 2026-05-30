@@ -15,6 +15,18 @@
 - [Node.js](https://nodejs.org/) (소스 코드로 실행 시 필요)
 - 디스코드 봇 토큰 (Discord Developer Portal에서 봇 생성 및 토큰 발급 필요)
 
+## 🤖 디스코드 봇 설정 가이드 (중요!)
+
+봇이 정상적으로 메시지를 읽고 링크를 열기 위해서는 디스코드 개발자 포털에서 아래 설정이 **반드시** 필요합니다.
+
+1. **[Discord Developer Portal](https://discord.com/developers/applications)** 접속 및 로그인
+2. 생성한 봇 애플리케이션 클릭 -> 왼쪽 메뉴의 **Bot** 클릭
+3. **Privileged Gateway Intents** 섹션에서 **Message Content Intent** 스위치를 **ON(활성화)** 하세요. (이게 꺼져 있으면 봇이 메시지를 읽지 못합니다!)
+4. 왼쪽 메뉴의 **OAuth2 -> URL Generator** 클릭
+   - **Scopes**: `bot` 체크
+   - **Bot Permissions**: `View Channels`, `Send Messages`, `Add Reactions` 체크
+5. 하단에 생성된 URL을 브라우저에 복사하여 본인의 서버에 봇을 초대하세요.
+
 ## 설치 방법 (Installation)
 
 1. 저장소를 클론하거나 다운로드합니다.
